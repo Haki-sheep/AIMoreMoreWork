@@ -1,8 +1,11 @@
 using System.Buffers.Binary;
-using System.Diagnostics;
+using System.ComponentModel;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
+using Microsoft.Win32.SafeHandles;
 
 namespace CodexInstanceManager;
 
@@ -12,6 +15,8 @@ public sealed class AntigravityDesktopClient : IDisposable
 {
     private const string Service = "exa.language_server_pb.LanguageServerService/";
     private const string IdleStatus = "CASCADE_RUN_STATUS_IDLE";
+    private const uint QueryLimitedInformation = 0x1000;
+    private const uint StillActive = 259;
     private readonly HttpClient Http;
 
     public static string HomePath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".gemini", "antigravity");
@@ -56,20 +61,36 @@ public sealed class AntigravityDesktopClient : IDisposable
 
     private static bool IsDesktopServer(int Pid)
     {
-        try
-        {
-            using var ServerProcess = Process.GetProcessById(Pid);
-            if (ServerProcess.HasExited || !ServerProcess.ProcessName.Equals("language_server", StringComparison.OrdinalIgnoreCase)) return false;
-            string? ServerPath = ServerProcess.MainModule?.FileName;
-            if (ServerPath is null) return false;
-            string? InstallPath = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(ServerPath)));
-            return InstallPath is not null
-                && ManagerPaths.Same(ServerPath, Path.Combine(InstallPath, "resources", "bin", "language_server.exe"))
-                && File.Exists(Path.Combine(InstallPath, "Antigravity.exe"));
-        }
-        catch (ArgumentException) { return false; }
-        catch (InvalidOperationException) { return false; }
+        using var Handle = OpenProcess(QueryLimitedInformation, false, Pid);
+        if (Handle.IsInvalid || !GetExitCodeProcess(Handle, out uint exitCode)) return UnavailableProcess();
+        if (exitCode != StillActive) return false;
+        var ImagePath = new StringBuilder(32768);
+        int length = ImagePath.Capacity;
+        if (!QueryFullProcessImageName(Handle, 0, ImagePath, ref length)) return UnavailableProcess();
+        string ServerPath = ImagePath.ToString();
+        string? InstallPath = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(ServerPath)));
+        return InstallPath is not null
+            && ManagerPaths.Same(ServerPath, Path.Combine(InstallPath, "resources", "bin", "language_server.exe"))
+            && File.Exists(Path.Combine(InstallPath, "Antigravity.exe"));
     }
+
+    private static bool UnavailableProcess()
+    {
+        int error = Marshal.GetLastWin32Error();
+        if (error is 5 or 6 or 87 or 1168) return false;
+        throw new Win32Exception(error, "无法检查 Antigravity 服务进程镜像");
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern SafeProcessHandle OpenProcess(uint Access, [MarshalAs(UnmanagedType.Bool)] bool InheritHandle, int ProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetExitCodeProcess(SafeProcessHandle Process, out uint ExitCode);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool QueryFullProcessImageName(SafeProcessHandle Process, uint Flags, StringBuilder Name, ref int Length);
 
     public void Dispose() => Http.Dispose();
 
