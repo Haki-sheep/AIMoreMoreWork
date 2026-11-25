@@ -18,7 +18,7 @@ CLI 的空编队请求为 `{"operation_id":"稳定标识","formation":{"setup_on
 
 界面和 CLI 的 `status` 为 `InProgress` 进行中、`Blocked` 阻塞中、`Archived` 已归档。暂停、任务阻塞、投递未知、待交接、结案待归档或会话操作未完成都显示阻塞中；底层 `state` 保留调度状态，`complete` 仅结案，不会自动归档。阻塞编队仍显示卡片。卡片及 `formation open` 可打开已绑定统筹，包括已归档会话，不发送工作消息。
 
-卡片上方提供归档、取消归档和删除。详情不展示需求上下文、交付总结或最近事件，完整记录仍可通过 CLI `show` / `task-show` 查询。
+卡片上方提供归档、取消归档、仅删除卡片和删除编队及会话。「仅删除卡片」确认后从桌面编队页移除该卡片，刷新或切换「显示已移除」后仍保持移除。编队任务、调度和 Agent 会话保持原状，编队记录仍可通过 CLI 查询。详情不展示需求上下文、交付总结或最近事件，完整记录可通过 CLI `show` / `task-show` 查询。
 
 会话生命周期操作只允许人工身份，均先调用 `formation lifecycle-preview`，JSON 为 `{"run_id":"编队ID","action":"archive"}`；action 可换为 `unarchive` 或 `delete`。检查返回的 `target_list`、`blocker_list` 与 `can_apply`，向用户展示确切会话范围，获得相应操作授权后执行。已有授权可沿用，不能从普通任务完成推断永久删除授权。
 

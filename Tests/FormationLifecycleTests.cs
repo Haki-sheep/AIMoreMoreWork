@@ -167,6 +167,7 @@ internal static class FormationLifecycleTests
     {
         public Dictionary<string, FormationConversation> Items { get; } = new();
         public List<string> Calls { get; } = new();
+        public int ReadCount { get; private set; }
         public string FailBefore { get; set; } = "";
         public string FailAfter { get; set; } = "";
         public string FailStop { get; set; } = "";
@@ -177,6 +178,7 @@ internal static class FormationLifecycleTests
         };
         public Task<List<FormationConversation>> ReadAsync(IReadOnlyList<FormationConversation> Targets, CancellationToken Cancellation)
         {
+            ReadCount++;
             foreach (var Target in Targets)
                 if (!Items.ContainsKey(Target.SessionId))
                 {

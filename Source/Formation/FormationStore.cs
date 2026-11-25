@@ -30,6 +30,15 @@ public sealed class FormationStore
 
     public FormationRun Create(FormationCreate Request) => Update(Database => Create(Database, Request));
 
+    internal void DeleteCard(string runId)
+    {
+        Update(Database =>
+        {
+            RequireRun(Database, runId).CardDeleted = true;
+            return true;
+        });
+    }
+
     internal static FormationTemplate SaveTemplate(FormationDatabase Database, FormationTemplate Template)
     {
         RequireText(Template.Name, "模板名称", 100);

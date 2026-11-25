@@ -20,6 +20,7 @@ public sealed class FormationCard : StudioCard
     public const string ArchiveAction = "archive";
     public const string UnarchiveAction = "unarchive";
     public const string DeleteAction = "delete";
+    public const string DeleteCardAction = "delete-card";
     private sealed record Notice(string Text, eTone Tone);
     private sealed record CardAction(string Text, string Id, eButtonKind Kind, bool Enabled);
     private sealed record CardHeader(string Title, eFormationStatus Status, Notice? Activation, string? Template, DateTimeOffset CreatedAt, int MaxParallel, int Passed, int Total, int Seats);
@@ -208,8 +209,9 @@ public sealed class FormationCard : StudioCard
             ArchiveText = "重试" + FormationLifecycleDialog.ActionTitle(Archive);
         }
         yield return new(ArchiveText, Archive, eButtonKind.Secondary, CanWrite);
+        yield return new("仅删除卡片", DeleteCardAction, eButtonKind.Secondary, CanWrite);
         if (Archive == DeleteAction) yield break;
-        yield return new("删除", DeleteAction, eButtonKind.Danger, CanWrite && Run.LifecycleOperation is not { Completed: false });
+        yield return new("删除编队及会话", DeleteAction, eButtonKind.Danger, CanWrite && Run.LifecycleOperation is not { Completed: false });
     }
     #endregion
 

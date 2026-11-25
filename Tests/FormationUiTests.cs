@@ -48,7 +48,8 @@ internal static class FormationUiTests
             }
         };
         var Store = new FormationStore(Path.Combine(Case, "formation"));
-        var Service = new FormationService(Store, Settings);
+        var Native = new FormationLifecycleTests.Fake();
+        var Service = new FormationService(Store, Settings, Conversations: Native);
         var MemberList = new List<FormationMember>
         {
             new() { Role = eFormationRole.Coordinator, InstanceId = "primary", Model = "gpt-5.5", Effort = "high" },
@@ -85,6 +86,7 @@ internal static class FormationUiTests
             Require(Card.Board.Members.Count(Item => Item.Role == eFormationRole.Executor) == 2 && Card.Board.Members.Single(Item => Item.Role == eFormationRole.Outsider).InstanceId == DshRelayRunner.InstanceId, "fixed roles keep multiple executors and a standby outsider");
             Require(Page.Templates.Count == 1 && Page.Templates[0].MemberList.Count == MemberList.Count, "saved templates are read from the store");
             Require(!Page.CanWrite && Card.ActionButton(FormationCard.ActivateAction)?.Enabled == false && Card.ActionButton(FormationCard.PauseAction)?.Enabled == false && Card.ActionButton(FormationCard.DetailAction)?.Enabled == true, "preview mode keeps formations read-only");
+            Require(Card.ActionButton(FormationCard.DeleteCardAction)?.Enabled == false, "preview mode cannot delete cards");
             Require(!Descendants(Page).OfType<Button>().Single(Item => Item.Name == "FormationCreate").Enabled, "preview mode cannot create formations");
             Require(!Descendants(Form).OfType<DataGridView>().Any(), "formations render as cards without a task table");
             Require(Card.Board.Bottom <= Card.Height && Card.ClientRectangle.Contains(Card.Board.Bounds), "compact seat roster fits inside the card");
@@ -186,8 +188,51 @@ internal static class FormationUiTests
             Toggle.PerformClick();
             Wait(() => Writable.Cards.Count == 1, "hide removed formations");
             Require(Writable.Cards.Count == 1, "removed cards can be hidden again");
+            VerifyDeleteCard(Host, Writable, Store, Native, Toggle, Run.Id, Removable.Id);
             VerifyDeleteTemplate(Host, Writable, Store, Run.Id, Template);
         }
+    }
+
+    private static void VerifyDeleteCard(Form Host, FormationPage Page, FormationStore Store, FormationLifecycleTests.Fake Native,
+        Button Toggle, string originalId, string archivedId)
+    {
+        var Run = Store.Create(new()
+        {
+            Theme = "仅删除卡片测试", SetupOnly = true,
+            MemberList = new()
+            {
+                new() { Role = eFormationRole.Coordinator, InstanceId = "test", SessionId = "main" },
+                new() { Role = eFormationRole.Executor, InstanceId = "test", SessionId = "worker" }
+            }
+        });
+        Native.Add("main", false);
+        Native.Add("worker", true);
+        Native.Items["main"].Busy = true;
+        string before = JsonSerializer.Serialize(Run);
+        int readCount = Native.ReadCount;
+        int callCount = Native.Calls.Count;
+        var Refresh = Page.ReloadAsync();
+        Wait(() => Refresh.IsCompletedSuccessfully, "refresh after creating card to delete");
+        var DeleteButton = Page.Cards.Single(Item => Item.Run.Id == Run.Id).ActionButton(FormationCard.DeleteCardAction)!;
+        DeleteButton.PerformClick();
+        InspectDialog(Host, Application.DoEvents, "仅删除卡片", Confirm => ((Button)Confirm.CancelButton!).PerformClick());
+        Require(!Store.Get(Run.Id).CardDeleted && DeleteButton.Visible, "cancelling keeps the card visible");
+        DeleteButton.PerformClick();
+        InspectDialog(Host, Application.DoEvents, "仅删除卡片", Confirm =>
+            Descendants(Confirm).OfType<Button>().Single(Item => Item.Text == "仅删除卡片").PerformClick());
+        Wait(() => Page.Cards.Count == 1, "confirmed card deletion");
+        Require(Page.Cards.Single().Run.Id == originalId && Store.Get(Run.Id).CardDeleted, "only the selected card disappears");
+        Toggle.PerformClick();
+        Wait(() => Page.Cards.Count == 2, "show archived removed cards after card deletion");
+        Require(Page.Cards.Any(Item => Item.Run.Id == archivedId) && Page.Cards.All(Item => Item.Run.Id != Run.Id),
+            "show removed does not restore the deleted card");
+        Toggle.PerformClick();
+        Wait(() => Page.Cards.Count == 1, "hide archived removed cards");
+        var Saved = Store.Get(Run.Id);
+        Saved.CardDeleted = false;
+        Require(JsonSerializer.Serialize(Saved) == before, "card deletion preserves the rest of the formation record");
+        Require(Native.ReadCount == readCount && Native.Calls.Count == callCount && Native.Items["main"] is { Exists: true, Busy: true } &&
+            Native.Items["worker"] is { Exists: true, Archived: true }, "card deletion does not read or change native sessions");
     }
 
     private static void VerifyDeleteTemplate(Form Host, FormationPage Page, FormationStore Store, string RunId, FormationTemplate Template)

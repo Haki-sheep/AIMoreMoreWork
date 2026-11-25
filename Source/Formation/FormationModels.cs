@@ -71,6 +71,8 @@ public sealed class FormationRun
     public eFormationState State { get; set; } = eFormationState.Active;
     public bool Archived { get; set; }
     public bool RemovedFromView { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CardDeleted { get; set; }
     public FormationLifecycleOperation? LifecycleOperation { get; set; }
     public List<FormationLifecycleTarget> ArchiveSnapshot { get; set; } = new();
     public eFormationStatus Status => LifecycleOperation is { Completed: false } ? eFormationStatus.Blocked : Archived ? eFormationStatus.Archived

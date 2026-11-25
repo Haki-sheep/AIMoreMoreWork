@@ -139,11 +139,12 @@ public sealed class FormationPage : UserControl
 
     private void ApplySnapshot(List<FormationRun> AllRuns, List<FormationTemplate> Templates)
     {
-        bool HasRemoved = AllRuns.Any(Item => Item.RemovedFromView);
-        RemovedToggle.Visible = HasRemoved;
-        if (!HasRemoved) ShowRemoved = false;
+        var CardRunList = AllRuns.Where(Item => !Item.CardDeleted).ToList();
+        bool hasRemoved = CardRunList.Any(Item => Item.RemovedFromView);
+        RemovedToggle.Visible = hasRemoved;
+        if (!hasRemoved) ShowRemoved = false;
         RemovedToggle.Text = ShowRemoved ? "隐藏已移除" : "显示已移除";
-        RunList = ShowRemoved ? AllRuns : AllRuns.Where(Item => !Item.RemovedFromView).ToList();
+        RunList = ShowRemoved ? CardRunList : CardRunList.Where(Item => !Item.RemovedFromView).ToList();
         TemplateList = Templates;
         RenderCards();
         HasSnapshot = true;
@@ -274,6 +275,7 @@ public sealed class FormationPage : UserControl
             FormationCard.SeatAction => () => EditSeatAsync(Run, Member!),
             FormationCard.OutsiderAction => () => EditSeatAsync(Run, null),
             FormationCard.OpenAction => () => ExecuteAsync("open", new { run_id = Run.Id }, "已打开统筹会话"),
+            FormationCard.DeleteCardAction => () => DeleteCardAsync(Run),
             FormationCard.ArchiveAction or FormationService.ArchiveRemove or FormationCard.UnarchiveAction or FormationCard.DeleteAction => () => LifecycleAsync(Run, Action),
             _ => () => ShowDetailAsync(Run.Id)
         };
@@ -316,6 +318,29 @@ public sealed class FormationPage : UserControl
             FormationCard.ArchiveAction => "编队已归档",
             _ => "已取消归档 自动调度保持暂停"
         });
+    }
+
+    private async Task DeleteCardAsync(FormationRun Run)
+    {
+        RequireWrite();
+        using var Dialog = new DeleteCardDialog(Run.Theme);
+        if (Dialog.ShowThemed(FindForm(), Theme) != DialogResult.Yes) return;
+        await Task.Run(() => Store!.DeleteCard(Run.Id), Lifetime.Token);
+        await ReloadAsync();
+        if (!IsDisposed) SetStatus("已删除卡片 " + Run.Theme, eTone.Success);
+    }
+
+    private sealed class DeleteCardDialog : StudioDialog
+    {
+        public DeleteCardDialog(string theme) : base("仅删除卡片", new Size(490, 190))
+        {
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            Content.Controls.Add(new StudioWrapLabel { Text = $"从编队页面删除「{theme}」的卡片？\n编队任务和 Agent 会话会保留。" });
+            AddAction("仅删除卡片", eButtonKind.Danger, (_, _) => DialogResult = DialogResult.Yes);
+            var Cancel = AddAction("取消", eButtonKind.Secondary, (_, _) => DialogResult = DialogResult.Cancel);
+            CancelButton = Cancel;
+            ActiveControl = Cancel;
+        }
     }
 
     private async Task<List<FormationTemplate>> SaveTemplateAsync(FormationTemplate Template)
