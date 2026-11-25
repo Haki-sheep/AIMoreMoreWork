@@ -4,7 +4,7 @@ public static class AgentToolCatalog
 {
     public static object[] Tools() => new object[]
     {
-        Tool("agent_instances", "列出 Codex 实例及执行端 Cursor ID 为 cursor DeepSeek Harness ID 为 dsh Claude Code ID 为 claude Antigravity App ID 为 antigravity", new { }, Array.Empty<string>()),
+        Tool("agent_instances", "列出可作为主会话或执行会话的实例 Codex 使用登记 ID 外部端使用 cursor dsh claude antigravity 主会话取自 MCP 宿主绑定", new { }, Array.Empty<string>()),
         Tool("dsh_create", "通过 DSH 桌面后台创建可见会话 默认工作区省略 project 或填 default request_id 重试保持不变 不操作窗口", new { request_id = Text(128), title = Text(120), project = Text() }, new[] { "request_id", "title" }),
         Tool("dsh_rename", "重命名指定 DSH 桌面会话 不发送消息", new { session_id = Text(128), title = Text(120) }, new[] { "session_id", "title" }),
         Tool("dsh_send", "向指定 DSH 桌面会话发送消息 返回受理状态 request_id 重试保持不变 不代表完成 联调任务优先使用 agent_start 自动回传", new { session_id = Text(128), request_id = Text(128), message = Text(RelayLimits.MaxTextLength) }, new[] { "session_id", "request_id", "message" }),
@@ -21,7 +21,7 @@ public static class AgentToolCatalog
             workspace = new { type = "object", properties = new { access = new { type = "string", @enum = new[] { "read_only", "write" } }, write_paths = new { type = "array", items = Text(1024), maxItems = 20 } }, required = new[] { "access" }, additionalProperties = false }
         }, new[] { "request_id", "instance", "title", "instructions", "acceptance", "workspace" }),
         Tool("agent_task", "按任务 ID 读取本人参与任务的状态 进度 结果和预算 可读取收件箱条目正文 不要轮询", new { task_id = Text(128) }, new[] { "task_id" }),
-        Tool("agent_inbox", "读取当前主会话的待处理回传 收到回传或恢复会话时从第一页核对 后续页传 next_after 到 after 正文用 agent_task 按 task_id 读取 不轮询", new { after = Text(128) }, Array.Empty<string>()),
+        Tool("agent_inbox", "读取当前主会话的待处理回传 Codex Antigravity DSH 支持桌面通知 Claude Code 与 Cursor 的结果显示待主会话拉取 正文用 agent_task 验收用 relay_accept 后续页传 next_after 到 after", new { after = Text(128) }, Array.Empty<string>()),
         Tool("agent_open", "启动指定实例并打开已存在的准确会话 不新建会话 不发送执行消息", new { instance = Text(), session_id = Text(128) }, new[] { "instance", "session_id" }),
         Tool("agent_resume", "仅任务主会话恢复实例退出后的原任务 自动打开原执行会话 空闲时投递续跑消息 保留原任务和下级 投递不明时禁止使用 已恢复的请求不重复发送", new { task_id = Text(128) }, new[] { "task_id" }),
         Tool("agent_cleanup", "按用户要求清理当前主会话名下的联调记录 interrupted=实例退出后阻塞 blocked=所有阻塞 finished=已验收或已撤销 未结束任务的下级联调会被中断 不删除对话或项目文件 Cursor CLI 及其子进程会停止 DSH 与 Antigravity 核对归属后请求取消 Codex 模型或脚本需另行停止", new { state = new { type = "string", @enum = new[] { "interrupted", "blocked", "finished" } } }, new[] { "state" }),
@@ -35,5 +35,9 @@ public static class AgentToolCatalog
 
     private static object Number(int Minimum) => new { type = "integer", minimum = Minimum };
     private static object Text(int Maximum = 1024) => new { type = "string", minLength = 1, maxLength = Maximum };
-    private static object Tool(string Name, string Description, object Properties, string[] RequiredList) => new { name = Name, description = Description, inputSchema = new { type = "object", properties = Properties, required = RequiredList, additionalProperties = false } };
+    private static object Tool(string Name, string Description, object Properties, string[] RequiredList) => new
+    {
+        name = Name, description = Description,
+        inputSchema = new { type = "object", description = "调用方由宿主会话绑定 instance 参数用于指定操作目标", properties = Properties, required = RequiredList, additionalProperties = false }
+    };
 }

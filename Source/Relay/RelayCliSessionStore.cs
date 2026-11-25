@@ -26,10 +26,13 @@ public sealed class RelayCliSessionStore
     }
 
     public RelayCliSession Get(string Id)
+        => Find(Id) ?? throw new InvalidOperationException("管理器未登记此 " + Agent + " CLI 会话 " + Id);
+
+    internal RelayCliSession? Find(string Id)
     {
         RequireId(Id);
         string PathValue = Path.Combine(Root, Id + ".json");
-        return File.Exists(PathValue) ? Read(PathValue) : throw new InvalidOperationException("管理器未登记此 " + Agent + " CLI 会话 " + Id);
+        return File.Exists(PathValue) ? Read(PathValue) : null;
     }
 
     public void Save(RelayCliSession Item)

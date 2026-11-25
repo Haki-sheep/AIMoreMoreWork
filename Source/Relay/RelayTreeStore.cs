@@ -10,7 +10,7 @@ public sealed partial class RelayStore
     private static readonly string BlockedBoardPredicate = $"""
         (state IN ({(int)eRelayState.DispatchUncertain},{(int)eRelayState.ReturnUncertain},{(int)eRelayState.TimedOut},{(int)eRelayState.Interrupted})
         OR (state = {(int)eRelayState.Running} AND COALESCE(json_extract(data,'$.ProgressStage'),'')='blocked')
-        OR (state IN ({(int)eRelayState.Returning},{(int)eRelayState.Returned}) AND COALESCE(json_extract(data,'$.Outcome'),'')<>'completed'))
+        OR (state IN ({(int)eRelayState.Returning},{(int)eRelayState.Returned},{(int)eRelayState.PendingPull}) AND COALESCE(json_extract(data,'$.Outcome'),'')<>'completed'))
         """;
     private const string BoardRootPredicate = "(COALESCE(json_extract(t.data,'$.ParentTaskId'),'')='' OR NOT EXISTS(SELECT 1 FROM visible p WHERE p.id=json_extract(t.data,'$.ParentTaskId')))";
 

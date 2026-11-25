@@ -25,6 +25,12 @@ public sealed class ClaudeRelayRunner : IDisposable
     public static InstanceProfile Profile => new() { Id = InstanceId, Name = "Claude Code", HomePath = ClaudeCodeCli.Home };
     public List<RelayCliSession> List(string? Selector, int Offset) => Sessions.List(Selector, Offset);
     public RelayCliSession Session(string Id) => Sessions.Get(Id);
+    internal string RequireCallerSession(string Id)
+    {
+        var Registered = Sessions.Find(Id);
+        RequireTranscript(Id);
+        return Registered?.Title ?? Id;
+    }
     public bool IsRunning(string SessionId) => BusySessions.ContainsKey(SessionId);
     internal bool HasPendingReport(RelayTask Item) => File.Exists(RelayOutbox.PendingPath(InstanceId, Item.Channel.WorkerThreadId, Item.Id, OutboxRoot));
     #endregion
@@ -64,7 +70,7 @@ public sealed class ClaudeRelayRunner : IDisposable
         if (IsRunning(Existing.Id)) throw new InvalidOperationException("Claude Code 会话正在执行");
         if (!ManagerPaths.Same(Existing.Cwd, Route.WorkingDirectory) || Existing.Model != Route.WorkerModel)
             throw new InvalidOperationException("已有 Claude Code 会话须沿用原工作目录与模型");
-        RequireTranscript(Existing);
+        RequireTranscript(Existing.Id);
         ClaudeCodeCli.TaskInfo(Item, Existing.CliPath, true, CodeHome);
     }
     #endregion
@@ -112,7 +118,7 @@ public sealed class ClaudeRelayRunner : IDisposable
     public void Open(string SessionId)
     {
         var Current = Session(SessionId);
-        RequireTranscript(Current);
+        RequireTranscript(Current.Id);
         var Info = ClaudeCodeCli.StartInfo(Current.CliPath, Current.Cwd, Current.Model, CodeHome);
         ClaudeCodeCli.AddSessionOptions(Info);
         Info.ArgumentList.Add("--resume");
@@ -136,11 +142,11 @@ public sealed class ClaudeRelayRunner : IDisposable
         }
     }
 
-    private void RequireTranscript(RelayCliSession Current)
+    private void RequireTranscript(string Id)
     {
         string Projects = Path.Combine(CodeHome, "projects");
-        if (!Directory.Exists(Projects) || !Directory.EnumerateDirectories(Projects).Any(DirectoryPath => File.Exists(Path.Combine(DirectoryPath, Current.Id + ".jsonl"))))
-            throw new InvalidOperationException("找不到已保存的 Claude Code 会话 " + Current.Id);
+        if (!Directory.Exists(Projects) || !Directory.EnumerateDirectories(Projects).Any(DirectoryPath => File.Exists(Path.Combine(DirectoryPath, Id + ".jsonl")) && new FileInfo(Path.Combine(DirectoryPath, Id + ".jsonl")).Length > 0))
+            throw new InvalidOperationException("找不到已保存的 Claude Code 会话 " + Id);
     }
 
     private async Task RunAsync(RelayTask Item, RelayCliSession Current, Func<string, string, Task> Progress, Func<RelayWorkerReport, Task> Report, bool Resume, CancellationToken Cancellation)

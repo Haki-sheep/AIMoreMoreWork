@@ -6,8 +6,9 @@ public sealed partial class AgentManagementService
 {
     private ClaudeRelayRunner RequireClaude() => Coordinator.Claude ?? throw new InvalidOperationException("当前管理器未启用 Claude Code 执行端");
 
-    private async Task<object> StartClaudeAsync(InstanceProfile Caller, string ThreadId, JsonElement Arguments, RelayTask? Existing, RelayWorkspace? Workspace, string Key, string FormationRunId, CancellationToken Cancellation)
+    private async Task<object> StartClaudeAsync(AgentCaller Main, JsonElement Arguments, RelayTask? Existing, RelayWorkspace? Workspace, string Key, string FormationRunId, CancellationToken Cancellation)
     {
+        var (Caller, ThreadId, MainTitle, MainDshServerUrl) = Main;
         var Claude = RequireClaude();
         if (OptionalText(Arguments, "project") is not null || OptionalText(Arguments, "cursor_cli_path") is not null)
             throw new InvalidOperationException("Claude Code 使用 cwd 指定工程目录");
@@ -30,7 +31,7 @@ public sealed partial class AgentManagementService
         var Route = new RelayChannel
         {
             FormationRunId = FormationRunId,
-            MainInstance = Caller, MainThreadId = ThreadId, MainTitle = Catalog.Session(Caller, ThreadId).Title,
+            MainInstance = Caller, MainThreadId = ThreadId, MainTitle = MainTitle, MainDshServerUrl = MainDshServerUrl,
             WorkerInstance = ClaudeRelayRunner.Profile, WorkerThreadId = Session?.Id ?? "", WorkerTitle = Session?.Title ?? CreateTitle!,
             CreateTitle = CreateTitle ?? "", WorkingDirectory = Cwd, WorkerModel = Model,
             TimeoutMinutes = Number(Arguments, "timeout_minutes", 60)
@@ -42,7 +43,7 @@ public sealed partial class AgentManagementService
         {
             task_id = Item.Id, state = RelayLimits.StateText(Item.State), instance_id = ClaudeRelayRunner.InstanceId,
             thread_id = Item.Channel.WorkerThreadId, cwd = Item.Channel.WorkingDirectory, model = Item.Channel.WorkerModel, worker_limits = Item.WorkerLimits,
-            instruction = Item.State == eRelayState.Running ? "Claude Code 直接执行任务 管理器自动回传结果 " + RelayLimits.DispatchWaitInstruction : "返回原任务记录 按当前状态处理"
+            instruction = Item.State == eRelayState.Running ? "Claude Code 直接执行任务 管理器自动回传结果 " + RelayLimits.WaitInstruction(Caller.Id) : "返回原任务记录 按当前状态处理"
         };
     }
 }

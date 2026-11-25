@@ -114,6 +114,7 @@ public sealed class RelayHost : IDisposable
             case "relay_progress":
                 return Describe(await Coordinator.ProgressAsync(Request.InstanceId, Request.ThreadId, Arguments.GetProperty("task_id").GetString()!, Arguments.GetProperty("stage").GetString()!, Arguments.GetProperty("message").GetString()!));
             case "relay_accept":
+                if (AgentService is not null) await AgentService.ValidateCallerAsync(Request, Lifetime.Token);
                 await Coordinator.ReviewAsync(Request.InstanceId, Request.ThreadId, Arguments.GetProperty("task_id").GetString()!);
                 return new { accepted = true };
             default: throw new InvalidOperationException("未知联调命令 " + Request.Command);

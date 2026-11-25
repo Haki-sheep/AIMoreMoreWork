@@ -10,7 +10,7 @@ public sealed class RelayPolicy
     public void Apply(RelayTask Item, RelayTask? Incoming, RelayTreeBudget? RequestedBudget, RelayWorkspace? Workspace, bool Resuming = false)
     {
         var ReservationList = Store.Reservations().Where(Slot => Slot.Id != Item.Id).ToList();
-        Item.TreeRootId = Incoming is null ? Item.Channel.MainInstance.Id + "/" + Item.Channel.MainThreadId : RootId(Incoming);
+        Item.TreeRootId = Incoming is null ? new RelaySessionIdentity(Item.Channel.MainInstance.Id, Item.Channel.MainThreadId).RootKey : RootId(Incoming);
         Item.TreeDepth = Incoming is null ? 1 : Depth(Incoming) + 1;
         var TreeList = ReservationList.Where(Slot => (Slot.TreeRootId.Length == 0 ? RootId(Store.Get(Slot.Id)) : Slot.TreeRootId) == Item.TreeRootId).ToList();
         var BudgetList = TreeList.Select(Slot => Slot.Budget).Concat(Incoming is null ? Array.Empty<RelayTreeBudget>() : new[] { Incoming.TreeBudget }).ToList();
@@ -50,7 +50,7 @@ public sealed class RelayPolicy
             if (!SeenHashList.Add(Item.Id)) throw new InvalidDataException("任务父级出现循环 " + Item.Id);
             Item = Parent;
         }
-        return Item.Channel.MainInstance.Id + "/" + Item.Channel.MainThreadId;
+        return new RelaySessionIdentity(Item.Channel.MainInstance.Id, Item.Channel.MainThreadId).RootKey;
     }
 
     private int Depth(RelayTask Item)

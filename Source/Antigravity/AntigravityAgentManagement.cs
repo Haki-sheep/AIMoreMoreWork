@@ -27,9 +27,10 @@ public sealed partial class AgentManagementService
     private static bool MatchesAntigravity(AntigravitySession Session, string? Selector) =>
         Selector is null || Session.Id.Equals(Selector, StringComparison.OrdinalIgnoreCase) || Session.Title == Selector;
 
-    private async Task<object> StartAntigravityAsync(InstanceProfile Caller, string ThreadId, JsonElement Arguments, RelayTask? Existing,
+    private async Task<object> StartAntigravityAsync(AgentCaller Main, JsonElement Arguments, RelayTask? Existing,
         RelayWorkspace? Workspace, string Key, string FormationRunId, CancellationToken Cancellation)
     {
+        var (Caller, ThreadId, MainTitle, MainDshServerUrl) = Main;
         foreach (string Parameter in new[] { "project", "cursor_cli_path", "model" })
             if (Arguments.TryGetProperty(Parameter, out _))
                 throw new InvalidOperationException("Antigravity 使用 cwd 选择新会话工作目录并沿用桌面模型 不接受 " + Parameter);
@@ -70,11 +71,10 @@ public sealed partial class AgentManagementService
                 Cwd = Session.Cwd;
             }
         }
-        var Main = Catalog.Session(Caller, ThreadId);
         var Route = new RelayChannel
         {
             FormationRunId = FormationRunId,
-            MainInstance = Caller, MainThreadId = ThreadId, MainTitle = Main.Title,
+            MainInstance = Caller, MainThreadId = ThreadId, MainTitle = MainTitle, MainDshServerUrl = MainDshServerUrl,
             WorkerInstance = new() { Id = AntigravityRelayRunner.InstanceId, Name = AntigravityRelayRunner.Name, HomePath = AntigravityDesktopClient.HomePath },
             WorkerThreadId = WorkerId, WorkerTitle = WorkerTitle, CreateTitle = CreateTitle ?? "",
             WorkingDirectory = Cwd, TimeoutMinutes = Number(Arguments, "timeout_minutes", 60)
@@ -86,7 +86,7 @@ public sealed partial class AgentManagementService
         {
             task_id = Item.Id, state = RelayLimits.StateText(Item.State), instance_id = AntigravityRelayRunner.InstanceId,
             thread_id = Item.Channel.WorkerThreadId, cwd = Item.Channel.WorkingDirectory, worker_limits = Item.WorkerLimits,
-            instruction = Item.State == eRelayState.Running ? RelayLimits.DispatchWaitInstruction : "按已保存的任务状态继续处理"
+            instruction = Item.State == eRelayState.Running ? RelayLimits.WaitInstruction(Caller.Id) : "按已保存的任务状态继续处理"
         };
     }
 }

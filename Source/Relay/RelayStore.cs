@@ -102,7 +102,7 @@ public sealed partial class RelayStore
         Command.CommandText = """
             SELECT id,title,state,updated_at,json_extract(data,'$.Outcome')
             FROM relay_tasks
-            WHERE state IN ($returning,$returned,$uncertain)
+            WHERE state IN ($returning,$returned,$uncertain,$pendingPull)
               AND json_extract(data,'$.Channel.MainInstance.Id')=$instance
               AND json_extract(data,'$.Channel.MainThreadId')=$thread
               AND json_extract(data,'$.Outcome')<>''
@@ -113,6 +113,7 @@ public sealed partial class RelayStore
         Command.Parameters.AddWithValue("$returning", (int)eRelayState.Returning);
         Command.Parameters.AddWithValue("$returned", (int)eRelayState.Returned);
         Command.Parameters.AddWithValue("$uncertain", (int)eRelayState.ReturnUncertain);
+        Command.Parameters.AddWithValue("$pendingPull", (int)eRelayState.PendingPull);
         Command.Parameters.AddWithValue("$instance", InstanceId);
         Command.Parameters.AddWithValue("$thread", ThreadId);
         Command.Parameters.AddWithValue("$after", After);

@@ -6,7 +6,7 @@ namespace CodexInstanceManager;
 public static class RelayMcp
 {
     #region Protocol
-    public static async Task RunAsync(string InstanceId, Stream Input, Stream Output, CancellationToken Cancellation, string? PipeName = null, string? OutboxRoot = null)
+    public static async Task RunAsync(string InstanceId, Stream Input, Stream Output, CancellationToken Cancellation, string? PipeName = null, string? OutboxRoot = null, string? BoundThreadId = null)
     {
         using var Reader = new BufferedStream(Input);
         using var Writer = new StreamWriter(Output, new UTF8Encoding(false), 4096, true) { AutoFlush = true };
@@ -21,10 +21,10 @@ public static class RelayMcp
             {
                 object Result = Message.GetProperty("method").GetString() switch
                 {
-                    "initialize" => new { protocolVersion = Message.GetProperty("params").GetProperty("protocolVersion").GetString(), capabilities = new { tools = new { } }, serverInfo = new { name = RelayLimits.McpName, version = "1.1.0" } },
+                    "initialize" => new { protocolVersion = Message.GetProperty("params").GetProperty("protocolVersion").GetString(), capabilities = new { tools = new { } }, serverInfo = new { name = RelayLimits.McpName, version = "1.2.0" }, instructions = "主会话由 MCP 启动时的实例和宿主会话元数据绑定 外部端可在启动时绑定 --caller-thread Claude Code 与 Cursor 从 agent_inbox 拉取结果" },
                     "ping" => new { },
                     "tools/list" => new { tools = ToolList() },
-                    "tools/call" => await CallAsync(InstanceId, Message.GetProperty("params"), Cancellation, PipeName, OutboxRoot),
+                    "tools/call" => await CallAsync(InstanceId, BoundThreadId, Message.GetProperty("params"), Cancellation, PipeName, OutboxRoot),
                     _ => throw new InvalidOperationException("不支持的 MCP 方法")
                 };
                 Response = new { jsonrpc = "2.0", id = Id, result = Result };
@@ -37,11 +37,14 @@ public static class RelayMcp
         }
     }
 
-    private static async Task<object> CallAsync(string InstanceId, JsonElement Parameters, CancellationToken Cancellation, string? PipeName, string? OutboxRoot)
+    private static async Task<object> CallAsync(string InstanceId, string? BoundThreadId, JsonElement Parameters, CancellationToken Cancellation, string? PipeName, string? OutboxRoot)
     {
         try
         {
-            string ThreadId = ReadThreadId(Parameters.GetProperty("_meta"));
+            string? MetadataThreadId = Parameters.TryGetProperty("_meta", out var Metadata) ? FindThreadId(Metadata) : null;
+            if (BoundThreadId is not null && MetadataThreadId is not null && BoundThreadId != MetadataThreadId)
+                throw new InvalidOperationException("宿主会话与 MCP 启动时绑定的会话不一致");
+            string ThreadId = BoundThreadId ?? MetadataThreadId ?? throw new InvalidOperationException("执行器未提供会话元数据 请在 MCP 启动时绑定实际会话");
             var Request = new RelayRequest(InstanceId, ThreadId, Parameters.GetProperty("name").GetString()!, Parameters.GetProperty("arguments").Clone());
             var Response = Request.Command == "relay_report" ? await RelayOutbox.DeliverAsync(Request, Cancellation, PipeName, OutboxRoot) : await RelayHost.RequestAsync(Request, Cancellation, PipeName);
             return new { content = new[] { new { type = "text", text = Response.GetRawText() } }, isError = false };
@@ -56,8 +59,12 @@ public static class RelayMcp
         }
     }
 
-    public static string ReadThreadId(JsonElement Metadata)
+    public static string ReadThreadId(JsonElement Metadata) => FindThreadId(Metadata)
+        ?? throw new InvalidOperationException("执行器未提供会话元数据 无法核对任务归属");
+
+    private static string? FindThreadId(JsonElement Metadata)
     {
+        if (Metadata.ValueKind != JsonValueKind.Object) throw new InvalidOperationException("会话元数据必须为 JSON 对象");
         foreach (string Key in new[] { "openai/threadId", "openai/thread_id", "codexThreadId", "codex_thread_id", "threadId", "thread_id" })
             if (Metadata.TryGetProperty(Key, out var Value) && Value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(Value.GetString())) return Value.GetString()!;
         if (Metadata.TryGetProperty("x-codex-turn-metadata", out var Turn))
@@ -66,7 +73,7 @@ public static class RelayMcp
             if (Document.RootElement.TryGetProperty("thread_id", out var Value)) return Value.GetString()!;
         }
         if (Metadata.TryGetProperty("thread", out var Thread) && Thread.TryGetProperty("id", out var Id)) return Id.GetString()!;
-        throw new InvalidOperationException("执行器未提供会话元数据 无法核对任务归属");
+        return null;
     }
     #endregion
 

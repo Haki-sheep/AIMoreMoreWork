@@ -2,7 +2,7 @@ namespace CodexInstanceManager;
 
 public enum eRelayState
 {
-    Sending, Running, Returning, Returned, Accepted, DispatchUncertain, ReturnUncertain, Cancelled, TimedOut, Interrupted, Recovering
+    Sending, Running, Returning, Returned, Accepted, DispatchUncertain, ReturnUncertain, Cancelled, TimedOut, Interrupted, Recovering, PendingPull
 }
 
 public enum eRelayBoardView { All, Current, Blocked, History }
@@ -27,6 +27,7 @@ public sealed class RelayChannel
     public string FormationRunId { get; internal set; } = "";
     public string CursorCliPath { get; set; } = "";
     public string DshServerUrl { get; set; } = "";
+    public string MainDshServerUrl { get; set; } = "";
     public int AntigravityStepOffset { get; set; }
     public string CreateTitle { get; set; } = "";
     public RelayTreeBudget TreeBudget { get; set; } = new();
@@ -128,6 +129,10 @@ public static class RelayLimits
     internal static IReadOnlyList<string> CodexThinkingList { get; } = new[] { "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra" };
     public const string DispatchWaitInstruction = "优先处理已到达且当前可核对的回传 继续推进其他已授权且依赖已满足的工作 准备等待前用 agent_inbox 或 CLI inbox 核对一次 当前无可推进事项且仍在等回传时才结束本轮等待事件 不轮询";
 
+    internal static string WaitInstruction(string InstanceId) => RelaySessionIdentity.PullsResults(InstanceId)
+        ? "结果保存在收件箱 当前执行端没有主动唤醒 恢复会话或继续验收时用 inbox 和 status 核对"
+        : DispatchWaitInstruction;
+
     public static string Excerpt(string Value, int Length)
     {
         if (Value.Length <= Length) return Value;
@@ -142,7 +147,7 @@ public static class RelayLimits
         eRelayState.Sending => "正在派发", eRelayState.Running => "执行中",
         eRelayState.Returning => "正在回传", eRelayState.Returned => "已回传 待主会话处理",
         eRelayState.Accepted => "验收通过", eRelayState.DispatchUncertain => "派发待核对",
-        eRelayState.ReturnUncertain => "回传待核对", eRelayState.Cancelled => "已撤销",
+        eRelayState.ReturnUncertain => "回传待核对", eRelayState.PendingPull => "待主会话拉取", eRelayState.Cancelled => "已撤销",
         eRelayState.TimedOut => "已超时", eRelayState.Interrupted => "执行恢复已阻塞", eRelayState.Recovering => "正在恢复原会话", _ => throw new ArgumentOutOfRangeException(nameof(State))
     };
 
@@ -158,6 +163,7 @@ public static class RelayLimits
         eRelayState.Running => "子Agent正在执行",
         eRelayState.Recovering => "正在恢复",
         eRelayState.Returning or eRelayState.Returned => Outcome == "completed" ? "主Agent正在执行" : "已阻塞",
+        eRelayState.PendingPull => "待主会话拉取",
         eRelayState.Accepted or eRelayState.Cancelled => "已结束",
         eRelayState.DispatchUncertain or eRelayState.ReturnUncertain or eRelayState.TimedOut or eRelayState.Interrupted => "已阻塞",
         _ => throw new ArgumentOutOfRangeException(nameof(State))
@@ -166,7 +172,7 @@ public static class RelayLimits
     public static bool IsBlocked(eRelayState State, string Outcome, string Stage) => State switch
     {
         eRelayState.Running => Stage == "blocked",
-        eRelayState.Returning or eRelayState.Returned => Outcome != "completed",
+        eRelayState.Returning or eRelayState.Returned or eRelayState.PendingPull => Outcome != "completed",
         eRelayState.DispatchUncertain or eRelayState.ReturnUncertain or eRelayState.TimedOut or eRelayState.Interrupted => true,
         _ => false
     };

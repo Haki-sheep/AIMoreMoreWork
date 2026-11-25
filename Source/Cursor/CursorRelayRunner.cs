@@ -36,6 +36,22 @@ public sealed class CursorRelayRunner : IDisposable
     public static InstanceProfile Profile => new() { Id = InstanceId, Name = "Cursor CLI", HomePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cursor") };
     public List<RelayCliSession> List(string? Selector, int Offset) => Sessions.List(Selector, Offset);
     public RelayCliSession Session(string Id) => Sessions.Get(Id);
+    internal string RequireCallerSession(string Id)
+    {
+        var Registered = Sessions.Find(Id);
+        if (Registered is not null) return Registered.Title;
+        string Chats = Path.Combine(Profile.HomePath, "chats");
+        if (Directory.Exists(Chats))
+            foreach (string Workspace in Directory.EnumerateDirectories(Chats))
+            {
+                string SessionPath = Path.Combine(Workspace, Id);
+                string Metadata = Path.Combine(SessionPath, "meta.json");
+                if (!File.Exists(Metadata) || !File.Exists(Path.Combine(SessionPath, "store.db"))) continue;
+                using var Document = JsonDocument.Parse(File.ReadAllBytes(Metadata));
+                if (Document.RootElement.TryGetProperty("hasConversation", out var Conversation) && Conversation.ValueKind == JsonValueKind.True) return Id;
+            }
+        throw new InvalidOperationException("未找到 Cursor CLI 会话 " + Id);
+    }
     public bool IsRunning(string SessionId) => RunningDict.Values.Any(Entry => Entry.Session == SessionId);
 
     public void OpenSessionLog(string SessionId)

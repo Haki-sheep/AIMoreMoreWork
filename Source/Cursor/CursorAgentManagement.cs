@@ -4,8 +4,9 @@ public sealed partial class AgentManagementService
 {
     private CursorRelayRunner RequireCursor() => Coordinator.Cursor ?? throw new InvalidOperationException("当前管理器未启用 Cursor 执行端 请更新并重启管理器");
 
-    private async Task<object> StartCursorAsync(ManagerSettings Settings, InstanceProfile Caller, string ThreadId, System.Text.Json.JsonElement Arguments, RelayTask? Existing, RelayWorkspace? Workspace, string Key, string FormationRunId, CancellationToken Cancellation)
+    private async Task<object> StartCursorAsync(ManagerSettings Settings, AgentCaller Main, System.Text.Json.JsonElement Arguments, RelayTask? Existing, RelayWorkspace? Workspace, string Key, string FormationRunId, CancellationToken Cancellation)
     {
+        var (Caller, ThreadId, MainTitle, MainDshServerUrl) = Main;
         var Cursor = RequireCursor();
         if (OptionalText(Arguments, "project") is not null) throw new InvalidOperationException("Cursor 联调请使用 cwd 绝对路径 不传入 Codex project");
         string? CreateTitle = OptionalText(Arguments, "create_title");
@@ -25,11 +26,10 @@ public sealed partial class AgentManagementService
         int SubagentMax = ReadSubagentMax(Arguments, Caller, ThreadId, Existing);
         var WorkerLimits = ReadWorkerLimits(Arguments, SubagentMax) ?? new RelayAgentLimits { SubagentMax = 0, SessionMax = 0, CrossAgentMax = 0 };
         if (WorkerLimits.SubagentMax != 0 || WorkerLimits.SessionMax != 0 || WorkerLimits.CrossAgentMax != 0) throw new InvalidOperationException("Cursor 执行端目前只执行当前任务 worker_limits 必须全部为零");
-        var Main = Catalog.Session(Caller, ThreadId);
         var Route = new RelayChannel
         {
             FormationRunId = FormationRunId,
-            MainInstance = Caller, MainThreadId = ThreadId, MainTitle = Main.Title,
+            MainInstance = Caller, MainThreadId = ThreadId, MainTitle = MainTitle, MainDshServerUrl = MainDshServerUrl,
             WorkerInstance = CursorRelayRunner.Profile, WorkerThreadId = Session?.Id ?? "", WorkerTitle = Session?.Title ?? CreateTitle!,
             CreateTitle = CreateTitle ?? "", WorkingDirectory = Cwd, WorkerModel = Model, CursorCliPath = Cli,
             CallbackCliPath = CliPath, TimeoutMinutes = Number(Arguments, "timeout_minutes", 60)
@@ -42,7 +42,7 @@ public sealed partial class AgentManagementService
             task_id = Item.Id, state = RelayLimits.StateText(Item.State), instance_id = CursorRelayRunner.InstanceId,
             thread_id = Item.Channel.WorkerThreadId, cwd = Cwd, model = Model, worker_limits = Item.WorkerLimits,
             tree_budget = Item.TreeBudget, tree_depth = Item.TreeDepth, workspace = Item.Workspace,
-            instruction = Item.State == eRelayState.Running ? "Cursor CLI 直接执行当前任务 管理器自动回传结果 " + RelayLimits.DispatchWaitInstruction : "返回原任务记录 不重复启动 Cursor 派发或回传待核对时先核对目标会话"
+            instruction = Item.State == eRelayState.Running ? "Cursor CLI 直接执行当前任务 管理器自动回传结果 " + RelayLimits.WaitInstruction(Caller.Id) : "返回原任务记录 不重复启动 Cursor 派发或回传待核对时先核对目标会话"
         };
     }
 }

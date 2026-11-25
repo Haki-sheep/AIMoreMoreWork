@@ -88,9 +88,12 @@ public static class AgentCli
           同步已配置规则与所选技能 默认 primary 和 all 含已注册 Codex 及已安装的受支持 Agent
           写入前预检所有目标 先备份同名技能和规则 保留目标独有技能 结果与备份路径写 stdout 任一失败退出 1
         formation <action>  管理编队 执行 formation help 查看用法
-        mcp --instance <实例ID>
-        调用方默认取 CODEX_HOME 与 CODEX_THREAD_ID
-        在 Codex 外使用时显式提供 --caller-instance <实例> --caller-thread <会话ID>
+        mcp --instance <实例ID> [--caller-thread <会话ID>]
+        Codex 可用 CODEX_HOME 与 CODEX_THREAD_ID 识别当前会话
+        外部端使用 --caller-instance <antigravity|dsh|claude|cursor> --caller-thread <真实会话ID>
+        Codex 显式调用可使用 --caller-instance <登记实例> --caller-thread <真实会话ID>
+        Codex Antigravity DSH 支持主动通知 Claude 与 Cursor 使用 inbox status accept
+        MCP 从宿主会话元数据或启动参数 --caller-thread 绑定会话
         stdout 返回 JSON 失败退出码 1 详情写 stderr
         """;
 
@@ -142,9 +145,9 @@ public static class AgentCli
             }
             if (Call.Command == "mcp")
             {
-                var Instance = AgentManagementService.ResolveInstance(Settings, Required(Call, "instance"));
-                ResponsesCompatProfile.EnsureRunning(Instance, ExecutablePath);
-                await RelayMcp.RunAsync(Instance.Id, Input, Output, Cancellation, PipeName, OutboxRoot);
+                var Instance = RelaySessionIdentity.ResolveProfile(Settings, Required(Call, "instance"));
+                if (!RelaySessionIdentity.IsExternal(Instance.Id)) ResponsesCompatProfile.EnsureRunning(Instance, ExecutablePath);
+                await RelayMcp.RunAsync(Instance.Id, Input, Output, Cancellation, PipeName, OutboxRoot, Call.OptionDict.GetValueOrDefault("caller-thread"));
                 return 0;
             }
             if (Call.Command == "install")
@@ -171,15 +174,16 @@ public static class AgentCli
             }
             string? CallerSelector = Call.OptionDict.GetValueOrDefault("caller-instance");
             InstanceProfile Caller;
-            if (CallerSelector is not null) Caller = AgentManagementService.ResolveInstance(Settings, CallerSelector);
+            if (CallerSelector is not null) Caller = RelaySessionIdentity.ResolveProfile(Settings, CallerSelector);
             else
             {
-                string Home = Environment.GetEnvironmentVariable("CODEX_HOME") ?? ManagerPaths.DefaultHome;
+                string Home = Environment.GetEnvironmentVariable("CODEX_HOME") ?? throw new InvalidOperationException("缺少 CODEX_HOME 请提供 --caller-instance 与 --caller-thread");
                 var MatchList = Settings.InstanceList.Where(Item => ManagerPaths.Same(Item.HomePath, Home)).ToList();
                 if (MatchList.Count != 1) throw new InvalidOperationException("无法唯一确定调用方实例 请提供 --caller-instance");
                 Caller = MatchList[0];
             }
-            string ThreadId = Call.OptionDict.GetValueOrDefault("caller-thread") ?? Environment.GetEnvironmentVariable("CODEX_THREAD_ID") ?? throw new InvalidOperationException("缺少 CODEX_THREAD_ID 请提供 --caller-thread");
+            string ThreadId = Call.OptionDict.GetValueOrDefault("caller-thread") ?? (CallerSelector is null ? Environment.GetEnvironmentVariable("CODEX_THREAD_ID") : null)
+                ?? throw new InvalidOperationException("调用方未绑定当前会话 请提供 --caller-thread 或使用 Codex 会话环境");
             string Command = Call.Command switch
             {
                 "instances" => "agent_instances", "projects" => "agent_projects", "sessions" => "agent_sessions", "start" => "agent_start",

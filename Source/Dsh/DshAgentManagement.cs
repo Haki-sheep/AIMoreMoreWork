@@ -4,8 +4,9 @@ namespace CodexInstanceManager;
 
 public sealed partial class AgentManagementService
 {
-    private async Task<object> StartDshAsync(ManagerSettings Settings, InstanceProfile Caller, string ThreadId, JsonElement Arguments, RelayTask? Existing, RelayWorkspace? Workspace, string Key, string FormationRunId, CancellationToken Cancellation)
+    private async Task<object> StartDshAsync(ManagerSettings Settings, AgentCaller Main, JsonElement Arguments, RelayTask? Existing, RelayWorkspace? Workspace, string Key, string FormationRunId, CancellationToken Cancellation)
     {
+        var (Caller, ThreadId, MainTitle, MainDshServerUrl) = Main;
         if (Coordinator.Dsh is null) throw new InvalidOperationException("当前管理器未启用 DSH 请更新并重启管理器");
         foreach (string Parameter in new[] { "cwd", "model", "cursor_cli_path" })
             if (Arguments.TryGetProperty(Parameter, out _)) throw new InvalidOperationException("DSH 使用 project 选择工作区并沿用桌面会话模型 不接受 " + Parameter);
@@ -25,11 +26,10 @@ public sealed partial class AgentManagementService
         int SubagentMax = ReadSubagentMax(Arguments, Caller, ThreadId, Existing);
         var WorkerLimits = ReadWorkerLimits(Arguments, SubagentMax) ?? new RelayAgentLimits { SubagentMax = 0, SessionMax = 0, CrossAgentMax = 0 };
         if (WorkerLimits.SubagentMax != 0 || WorkerLimits.SessionMax != 0 || WorkerLimits.CrossAgentMax != 0) throw new InvalidOperationException("DSH 当前直接执行任务 worker_limits 必须全部为零");
-        var Main = Catalog.Session(Caller, ThreadId);
         var Route = new RelayChannel
         {
             FormationRunId = FormationRunId,
-            MainInstance = Caller, MainThreadId = ThreadId, MainTitle = Main.Title,
+            MainInstance = Caller, MainThreadId = ThreadId, MainTitle = MainTitle, MainDshServerUrl = MainDshServerUrl,
             WorkerInstance = new() { Id = DshRelayRunner.InstanceId, Name = "DeepSeek Harness", HomePath = Client.Connection.HomePath },
             WorkerThreadId = Session?.Id ?? "", WorkerTitle = Session?.Title ?? CreateTitle!, CreateTitle = CreateTitle ?? "",
             ProjectId = TargetProject?.Id ?? "", WorkingDirectory = Session?.Cwd ?? TargetProject!.Path,
@@ -38,7 +38,7 @@ public sealed partial class AgentManagementService
         var Item = await Coordinator.DispatchAsync(Caller.Id, ThreadId, Key, Text(Arguments, "title"), Text(Arguments, "instructions"), Text(Arguments, "acceptance"), Route,
             Number(Arguments, "session_max", 1), SubagentMax, CrossAgentMax: Number(Arguments, "cross_agent_max", 1), WorkerLimits: WorkerLimits, TreeBudget: ReadTreeBudget(Arguments), Workspace: Workspace, ResolvedDsh: Client.Connection);
         string Instruction = Item.State == eRelayState.Running
-            ? "管理器按原请求监测 DSH 桌面会话并回传结果 " + RelayLimits.DispatchWaitInstruction
+            ? "管理器按原请求监测 DSH 桌面会话并回传结果 " + RelayLimits.WaitInstruction(Caller.Id)
             : "按已保存的任务状态继续处理 不重复派发";
         return new { task_id = Item.Id, state = RelayLimits.StateText(Item.State), instance_id = DshRelayRunner.InstanceId, thread_id = Item.Channel.WorkerThreadId, project_id = Item.Channel.ProjectId, cwd = Item.Channel.WorkingDirectory, worker_limits = Item.WorkerLimits, instruction = Instruction };
     }

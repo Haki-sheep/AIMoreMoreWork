@@ -50,6 +50,10 @@ internal static class Tests
         if (ArgumentList.Contains("--agent-startup")) { AgentStartupTests.Run(); return 0; }
         if (ArgumentList.Contains("--agent-defaults")) { AgentManagementTests.RunDefaults(); return 0; }
         if (ArgumentList.Contains("--agents")) { AgentManagementTests.Run(); return 0; }
+        if (ArgumentList.Contains("--relay-callers")) { Task.Run(RelayCallerTests.RunAsync).GetAwaiter().GetResult(); return 0; }
+        if (ArgumentList is ["--relay-caller-test-cli", var CallerFixtureRoot, var CallerPipe, .. var CallerArguments])
+            return RelayCallerLiveTests.RunCli(CallerFixtureRoot, CallerPipe, CallerArguments);
+        if (ArgumentList.Contains("--relay-caller-live")) { Task.Run(RelayCallerLiveTests.RunAsync).GetAwaiter().GetResult(); return 0; }
         if (ArgumentList.Contains("--collaboration")) { CollaborationTests.Run(); return 0; }
         if (ArgumentList.Contains("--events-live")) return CollaborationTests.EventProbe();
         if (ArgumentList.Contains("--instance-ui")) return InstancePageUiTests.Run();
