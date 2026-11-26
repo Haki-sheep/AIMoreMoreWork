@@ -1,11 +1,22 @@
 ---
 name: ai-more-more-work
-description: 使用 AIMoreMoreWork 组织 Codex 原生子代理 同实例会话 跨实例协作和编队管理 支持 Cursor Claude Code DeepSeek Harness 与 Antigravity 联调 用于实际分工 派发与验收 不用于仅解释协作概念或比较上下文用量
+description: 联调入口 让 Codex Claude Code Cursor DSH Antigravity 的会话互相派发任务并回传结果 用户说联调 跨 Agent 协作 交给另一个 AI 或会话去做 发给 Codex 某会话 新建会话执行 编队 子代理分工时使用 通过 AIMoreMoreWork CLI 或 MCP 派发 等待回传与验收 不用于仅解释协作概念或比较上下文用量
 ---
 
 # ai-more-more-work
 
 先分析并整理用户任务 再在授权范围内执行协作 不是只按数字创建 Agent 主会话与执行会话都可以是不归属项目的独立会话 不要求实例当前打开某个工程
+
+## 快速入口
+
+一轮联调就是 找到目标会话 派发 等回传 验收 四步 已加载 `AIMoreMoreWork` MCP 时用对应 `agent_*` 工具 否则用 CLI
+
+- CLI 用本 Skill 的 [scripts/aimoremorework.ps1](scripts/aimoremorework.ps1) 它自动定位 `AIMoreMoreWork.Cli.exe` Bash 中可用 `powershell -NoProfile -File <脚本> <命令>`
+- 身份 Codex 从环境自动识别 Claude Code 追加 `--caller-instance claude --caller-thread $CLAUDE_CODE_SESSION_ID` Cursor 用 `--caller-instance cursor --caller-thread <当前会话ID>`
+- 找会话 `sessions --instance <实例> [--project <项目名>] [--session <会话名>]` 用户说的“某项目下的某会话”直接按名称查 拿到准确 ID
+- 派发 `start --json-file <请求文件>` 复用会话填 `session` 新建填 `create_title` 与可选 `project` 请求字段见下文 Session 与跨实例操作 JSON 中路径用正斜杠可避免 Shell 吞掉反斜杠
+- 等回传 Codex DSH Antigravity 主会话由管理器通知 Claude Code 与 Cursor 主会话按派发回执运行 `wait` 见下文主会话表格后的说明
+- 验收 `status --task-id <ID>` 核对结果 通过后 `accept --task-id <ID>`
 
 ## 协作方式选择
 
