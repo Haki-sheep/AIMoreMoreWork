@@ -43,7 +43,7 @@ public sealed partial class AgentManagementService
         {
             task_id = Item.Id, state = RelayLimits.StateText(Item.State), instance_id = ClaudeRelayRunner.InstanceId,
             thread_id = Item.Channel.WorkerThreadId, cwd = Item.Channel.WorkingDirectory, model = Item.Channel.WorkerModel, worker_limits = Item.WorkerLimits,
-            instruction = Item.State == eRelayState.Running ? "Claude Code 直接执行任务 管理器自动回传结果 " + RelayLimits.WaitInstruction(Caller.Id) : "返回原任务记录 按当前状态处理"
+            instruction = Item.State == eRelayState.Running ? "Claude Code 直接执行任务 管理器自动回传结果 " + RelayLimits.WaitInstruction(Item) : "返回原任务记录 按当前状态处理"
         };
     }
 }

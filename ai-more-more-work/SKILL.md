@@ -85,12 +85,12 @@ AIMoreMoreWork 的“实例管理”页集中配置 Codex 实例及外部执行�
 | Codex | 已登记的实例 ID，也可用 `codex:<登记ID>` | 实例内未归档会话 | 桌面通知 |
 | Antigravity | `antigravity` | 桌面服务返回的会话 ID | 空闲后向原会话提交通知 |
 | DSH | `dsh` | 桌面服务的未归档会话 | 向原会话排队 |
-| Claude Code | `claude` | 本地 CLI 转录 | 收件箱拉取 |
-| Cursor | `cursor` | CLI 创建时的登记或本机会话记录 | 收件箱拉取 |
+| Claude Code | `claude` | 本地 CLI 转录 | 后台 wait 唤醒 |
+| Cursor | `cursor` | CLI 创建时的登记或本机会话记录 | wait 阻塞唤醒 |
 
 外部端的 CLI 命令加上 `--caller-instance <类型ID> --caller-thread <当前实际会话ID>`。查询目标会话、派发、验收和其他主会话命令使用同一对参数。MCP 可由宿主带入会话元数据。宿主没有这个字段时，用 `mcp --instance <类型ID> --caller-thread <当前实际会话ID>` 为该会话启动独立的 MCP 进程。不要把会话绑定跨会话复用。管理器核对实际会话记录，身份不完整或冲突时拒绝。
 
-所有主会话复用任务树和写入范围检查。会话 ID 即使相同，只要实例不同仍是不同会话。主会话为 Claude Code 或 Cursor 时，结果状态为「待主会话拉取」。继续验收时依次用 `inbox`、`status`、`accept`，`retry-return` 保留原回报和待拉取状态。桌面端通知未确认时，也可从原主会话收件箱读取结果。
+所有主会话复用任务树和写入范围检查。会话 ID 即使相同，只要实例不同仍是不同会话。主会话为 Claude Code 或 Cursor 时，结果状态为「待主会话拉取」。管理器无法向这两类主会话推送，派发后用 CLI `wait --task-ids <任务ID逗号列表> [--timeout-minutes 0]` 等待，`start` 返回的 instruction 已带具体任务 ID 和 caller 参数。`wait` 阻塞到任一任务离开执行状态（已回报、阻塞、超时、撤销、待主会话拉取）或执行方报告 blocked，输出 JSON `{timed_out, ready, waiting, instruction}` 后退出 0，`0` 表示不限时，管理器离线则报错退出 1。Claude Code 派发后立即用 Bash 工具的 `run_in_background` 运行 `wait`（带 `--caller-instance claude --caller-thread <会话ID>`），本轮即可结束，命令退出时宿主自动唤醒会话。Cursor 可前台阻塞运行。多个任务在一次 `wait` 中逗号列出，返回后对 `waiting` 里的任务重新运行 `wait`。唤醒后用 `status` 核对、`accept` 验收，`retry-return` 保留原回报和待拉取状态。等待期间不循环调用 `inbox`、`status` 或 sleep。桌面端通知未确认时，也可从原主会话收件箱读取结果。
 
 Codex 新建及复用可选 `model` 和 `thinking`。模型省略或为空时沿用会话或实例配置，模型 ID 由目标 Codex 校验。推理档位需精确使用 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` 或 `ultra`，省略时沿用目标默认值。重试用原 `request_id` 和原选项。Cursor 与 Claude Code 可在新建时选 `model`，复用沿用登记值。DSH 和 Antigravity 沿用各自桌面配置。这四种执行端均请省略 `thinking`。
 
@@ -164,7 +164,7 @@ CLI 和 MCP 能力以当前 `help` 与工具目录为准 后台 API 不提供桌
 
 `sessions --instance claude` 仅查管理器登记的 Claude Code CLI 会话。用户指定 Claude Desktop App 的原会话时，若结果为空就说明该会话无法由当前管理器复用。保留用户指定的目标，等待可验证的原会话接入条件，禁止擅自新建同名会话。Desktop 会话的本地 ID 与 CLI UUID 即使能够对应，也仍需确认原进程已释放会话及当前入口能够恢复它。
 
-执行端的 `worker_limits` 全零。只读任务开放读取和搜索，写入任务按 `workspace.write_paths` 开放文件编辑。终端命令由主会话另行验证。管理器在 CLI 初始化后记录进度，保存结构化结果并回传原主会话。取消或超时停止进程树，管理器重启后按原任务记录处理。
+执行端的 `worker_limits` 全零。只读任务开放读取和搜索，写入任务按 `workspace.write_paths` 开放文件编辑。终端命令由主会话另行验证。管理器在 CLI 初始化后记录进度，保存结构化结果并回传原主会话。取消或超时停止进程树，管理器重启后按原任务记录处理。主会话回传见上文 `wait` 说明。
 
 ## Antigravity App 桌面联调
 
@@ -209,9 +209,9 @@ CLI 和 MCP 能力以当前 `help` 与工具目录为准 后台 API 不提供桌
 
 ## 事件回传与验收
 
-Session 派发成功后继续推进其他已授权且依赖已满足的工作。当前无可推进事项时，可结束本轮等待回传。桌面主会话收到通知后继续验收，拉取型主会话恢复时先查收件箱。原生 Subagent 使用宿主提供的完成事件。等待联调结果时避免循环调用 status、read_thread 或 sleep。
+Session 派发成功后继续推进其他已授权且依赖已满足的工作。当前无可推进事项时，可结束本轮等待回传。桌面主会话收到通知后继续验收，Claude Code 与 Cursor 主会话派发后用 `wait` 等待，见上文主会话表格后的说明，唤醒后先 `status` 核对。原生 Subagent 使用宿主提供的完成事件。等待联调结果时避免循环调用 status、read_thread 或 sleep。
 
-主会话收到任一回传通知 恢复会话或准备结束本轮等待时 用 `agent_inbox` 或 CLI `inbox` 从第一页核对当前主会话的待处理回传 多条通知按任务 ID 去重 `next_after` 非空时传入 MCP `after` 或 CLI `--after` 继续读取本批次 通知只带任务 ID 结果摘要与产物数量 通过 `agent_task` 或 `status --task-id <ID>` 读取完整结果与产物 已保存但通知未确认的结果也在收件箱中 核对通过后调用 MCP `relay_accept` 或 CLI `accept` 一并关闭对应待处理项 不需要先重发通知 不循环刷新收件箱 等待下一次事件时再次从第一页核对
+主会话收到任一回传通知 恢复会话或准备结束本轮等待时 用 `agent_inbox` 或 CLI `inbox` 从第一页核对当前主会话的待处理回传 多条通知按任务 ID 去重 `next_after` 非空时传入 MCP `after` 或 CLI `--after` 继续读取本批次 通知只带任务 ID 结果摘要与产物数量 通过 `agent_task` 或 `status --task-id <ID>` 读取完整结果与产物 已保存但通知未确认的结果也在收件箱中 `wait` 唤醒的主会话用 `status` 核对即可 核对通过后调用 MCP `relay_accept` 或 CLI `accept` 一并关闭对应待处理项 不需要先重发通知 不循环刷新收件箱 等待下一次事件时再次从第一页核对
 
 执行 Agent 真正开始工作时主动调用 `relay_progress` 或 CLI `progress --json-file <文件>` 参数含 `task_id` `stage=started` `message` 重要阶段完成时上报 `stage=progress` 暂时阻塞时上报 `stage=blocked` 不发送定时心跳 进度只更新管理器 不唤醒主会话 不能代替最终回报 未收到 started 时界面只表示等待开始确认
 

@@ -87,7 +87,27 @@ internal static class RelayCallerTests
                     await Call(Provider, Thread, "agent_retry_return", new { task_id = TaskId, confirmed = true });
                     Require(Desktop.DshRequestList.Count == 2 && Desktop.DshRequestList[0] == Desktop.DshRequestList[1], "DSH 重试使用原通知请求 ID");
                 }
+                Task<(int Exit, string Text)>? Waiting = null;
+                if (Mode == "inbox")
+                {
+                    Require(Started.GetProperty("instruction").GetString()!.Contains("wait --task-ids " + TaskId), "拉取端派发回执给出 wait 命令 " + Provider);
+                    Waiting = Task.Run(async () =>
+                    {
+                        using var WaitOutput = new MemoryStream();
+                        using var WaitError = new StringWriter();
+                        int WaitExit = await AgentCli.RunAsync(new[] { "wait", "--task-ids", TaskId, "--timeout-minutes", "1", "--caller-instance", Provider, "--caller-thread", Thread }, new MemoryStream(), WaitOutput, WaitError, Environment.ProcessPath!, CancellationToken.None, PipeName, () => Settings);
+                        return (WaitExit, Encoding.UTF8.GetString(WaitOutput.ToArray()) + WaitError);
+                    });
+                    await Task.Delay(500);
+                    Require(!Waiting.IsCompleted, "wait 在任务执行中保持阻塞 " + Provider);
+                }
                 var Reported = await Coordinator.ReportAsync("codex-main", Shared, TaskId, "completed", "observed", new());
+                if (Waiting is not null)
+                {
+                    var (WaitExit, WaitText) = await Waiting.WaitAsync(TimeSpan.FromSeconds(20));
+                    using var WaitResult = JsonDocument.Parse(WaitText);
+                    Require(WaitExit == 0 && !WaitResult.RootElement.GetProperty("timed_out").GetBoolean() && WaitResult.RootElement.GetProperty("ready")[0].GetProperty("outcome").GetString() == "completed", "wait 在回报后立即返回结果 " + WaitText);
+                }
                 Require(Reported.State == (Mode == "inbox" ? eRelayState.PendingPull : eRelayState.Returned), "回传状态符合执行端 " + Provider);
                 Require(Bridge.ReturnCount == 0, "外部主会话没有误发到 Codex");
                 Require(Desktop.SentList.Count == notified + (Mode == "desktop" ? 1 : 0), "只唤醒支持桌面投递的主会话 " + Provider);

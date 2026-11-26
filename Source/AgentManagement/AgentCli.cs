@@ -62,6 +62,9 @@ public static class AgentCli
         tree --task-id <任务ID> [--offset 0]
         retry-return --task-id <任务ID> --confirmed true
         inbox [--after <上一页的 next_after>]  列出本主会话待处理回传 正文用 status --task-id 查看
+        wait --task-ids <任务ID逗号列表> [--timeout-minutes 0]
+          阻塞到任一任务回报 阻塞或结束后输出其状态并退出 0 表示不限时 超时输出 timed_out=true
+          Claude Code 主会话派发后用 Bash run_in_background 运行 退出即唤醒会话 无需轮询
         reconcile --task-id <任务ID> --session-id <已核对的会话ID> --confirmed true
         doctor [--instance <实例>]  无需会话身份 不启动模型
         install --instance <实例> [--skill <Skill目录>]
@@ -92,7 +95,7 @@ public static class AgentCli
         Codex 可用 CODEX_HOME 与 CODEX_THREAD_ID 识别当前会话
         外部端使用 --caller-instance <antigravity|dsh|claude|cursor> --caller-thread <真实会话ID>
         Codex 显式调用可使用 --caller-instance <登记实例> --caller-thread <真实会话ID>
-        Codex Antigravity DSH 支持主动通知 Claude 与 Cursor 使用 inbox status accept
+        Codex Antigravity DSH 支持主动通知 Claude 与 Cursor 用 wait 等待回传 再用 status accept
         MCP 从宿主会话元数据或启动参数 --caller-thread 绑定会话
         stdout 返回 JSON 失败退出码 1 详情写 stderr
         """;
@@ -184,6 +187,11 @@ public static class AgentCli
             }
             string ThreadId = Call.OptionDict.GetValueOrDefault("caller-thread") ?? (CallerSelector is null ? Environment.GetEnvironmentVariable("CODEX_THREAD_ID") : null)
                 ?? throw new InvalidOperationException("调用方未绑定当前会话 请提供 --caller-thread 或使用 Codex 会话环境");
+            if (Call.Command == "wait")
+            {
+                await Writer.WriteLineAsync(JsonSerializer.Serialize(await WaitAsync(Call, Caller.Id, ThreadId, PipeName, Cancellation)));
+                return 0;
+            }
             string Command = Call.Command switch
             {
                 "instances" => "agent_instances", "projects" => "agent_projects", "sessions" => "agent_sessions", "start" => "agent_start",
@@ -209,6 +217,44 @@ public static class AgentCli
     }
     #endregion
 
+    #region Waiting
+    private static readonly TimeSpan WaitPollInterval = TimeSpan.FromSeconds(3);
+
+    /// <summary>
+    /// 为拉取型主会话阻塞等待下级任务离开执行状态
+    /// 只读取任务记录 不改变任务状态 管理器离线时直接抛出
+    /// </summary>
+    private static async Task<object> WaitAsync(AgentCliInvocation Call, string CallerId, string ThreadId, string? PipeName, CancellationToken Cancellation)
+    {
+        var TaskIdList = Required(Call, "task-ids").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct().ToList();
+        if (TaskIdList.Count == 0 || TaskIdList.Count > RelayLimits.PageSize) throw new InvalidOperationException("task-ids 须包含 1 至 " + RelayLimits.PageSize + " 个任务 ID");
+        int timeoutMinutes = Call.OptionDict.TryGetValue("timeout-minutes", out string? TimeoutText) ? int.Parse(TimeoutText) : 0;
+        if (timeoutMinutes is < 0 or > 1440) throw new InvalidOperationException("timeout-minutes 范围 0 至 1440");
+        var ActiveStateHashList = new HashSet<string> { RelayLimits.StateText(eRelayState.Sending), RelayLimits.StateText(eRelayState.Running), RelayLimits.StateText(eRelayState.Recovering), RelayLimits.StateText(eRelayState.Returning) };
+        DateTimeOffset? Deadline = timeoutMinutes == 0 ? null : DateTimeOffset.UtcNow.AddMinutes(timeoutMinutes);
+        while (true)
+        {
+            var ReadyList = new List<object>();
+            var WaitingList = new List<string>();
+            foreach (string TaskId in TaskIdList)
+            {
+                var Record = await RelayHost.RequestAsync(new(CallerId, ThreadId, "agent_task", JsonSerializer.SerializeToElement(new { task_id = TaskId })), Cancellation, PipeName);
+                string State = Record.GetProperty("state").GetString()!;
+                if (ActiveStateHashList.Contains(State) && Record.GetProperty("progress_stage").GetString() != "blocked") { WaitingList.Add(TaskId); continue; }
+                ReadyList.Add(new
+                {
+                    task_id = TaskId, title = Record.GetProperty("title").GetString(), state = State, display_state = Record.GetProperty("display_state").GetString(),
+                    outcome = Record.GetProperty("outcome").GetString(), summary = RelayLimits.Excerpt(Record.GetProperty("summary").GetString()!, 640),
+                    artifact_count = Record.GetProperty("artifacts").GetArrayLength(), progress = Record.GetProperty("progress").GetString()
+                });
+            }
+            if (ReadyList.Count != 0) return new { timed_out = false, ready = ReadyList, waiting = WaitingList, instruction = "用 status 读取完整结果 核对通过后 accept 仍在 waiting 的任务重新运行 wait" };
+            if (Deadline is { } Limit && DateTimeOffset.UtcNow >= Limit) return new { timed_out = true, ready = ReadyList, waiting = WaitingList, instruction = "任务仍在执行 需要继续等待时重新运行 wait" };
+            await Task.Delay(WaitPollInterval, Cancellation);
+        }
+    }
+    #endregion
+
     #region Arguments
     public static AgentCliInvocation Parse(string[] ArgumentList)
     {
@@ -229,6 +275,7 @@ public static class AgentCli
             "doctor" => new[] { "instance" },
             "tree" => new[] { "task-id", "offset" },
             "inbox" => new[] { "after" },
+            "wait" => new[] { "task-ids", "timeout-minutes" },
             "retry-return" => new[] { "task-id", "confirmed" },
             "reconcile" => new[] { "task-id", "session-id", "confirmed" },
             "open" => new[] { "instance", "session-id" },

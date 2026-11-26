@@ -129,9 +129,15 @@ public static class RelayLimits
     internal static IReadOnlyList<string> CodexThinkingList { get; } = new[] { "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra" };
     public const string DispatchWaitInstruction = "优先处理已到达且当前可核对的回传 继续推进其他已授权且依赖已满足的工作 准备等待前用 agent_inbox 或 CLI inbox 核对一次 当前无可推进事项且仍在等回传时才结束本轮等待事件 不轮询";
 
-    internal static string WaitInstruction(string InstanceId) => RelaySessionIdentity.PullsResults(InstanceId)
-        ? "结果保存在收件箱 当前执行端没有主动唤醒 恢复会话或继续验收时用 inbox 和 status 核对"
-        : DispatchWaitInstruction;
+    internal static string WaitInstruction(RelayTask Item)
+    {
+        var Channel = Item.Channel;
+        if (!RelaySessionIdentity.PullsResults(Channel.MainInstance.Id)) return DispatchWaitInstruction;
+        string Cli = Channel.CallbackCliPath.Length == 0 ? AgentCliDeployment.LoadPath() : Channel.CallbackCliPath;
+        return $"管理器无法主动唤醒本会话 派发后立即在后台运行 CLI {Cli} 参数 wait --task-ids {Item.Id}{RelayCoordinator.RelayCallerFlags(Channel.MainInstance.Id, Channel.MainThreadId)} "
+            + "Claude Code 用 Bash 的 run_in_background 运行 命令在任务回报 阻塞或结束时退出并输出结果 退出即唤醒本会话 再用 status 核对并 accept "
+            + "多个任务在一次 wait 中用逗号列出 返回后对仍在执行的任务重新运行 wait 不循环调用 inbox status 或 sleep";
+    }
 
     public static string Excerpt(string Value, int Length)
     {

@@ -86,7 +86,7 @@ public sealed partial class AgentManagementService
         {
             task_id = Item.Id, state = RelayLimits.StateText(Item.State), instance_id = AntigravityRelayRunner.InstanceId,
             thread_id = Item.Channel.WorkerThreadId, cwd = Item.Channel.WorkingDirectory, worker_limits = Item.WorkerLimits,
-            instruction = Item.State == eRelayState.Running ? RelayLimits.WaitInstruction(Caller.Id) : "按已保存的任务状态继续处理"
+            instruction = Item.State == eRelayState.Running ? RelayLimits.WaitInstruction(Item) : "按已保存的任务状态继续处理"
         };
     }
 }
