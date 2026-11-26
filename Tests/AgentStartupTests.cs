@@ -47,6 +47,13 @@ internal static class AgentStartupTests
             Desktop.Status = "active";
             await ExpectAsync<InvalidOperationException>(() => Catalog.RequireIdleAsync(Instance, "existing-thread", CancellationToken.None));
             Require(Desktop.CallList.All(Item => Item.Tool != "send_message_to_thread"), "active sessions are rejected without sending execution messages");
+            Desktop.Status = "notLoaded";
+            int callsBeforeLoad = Desktop.CallList.Count;
+            await Catalog.RequireIdleAsync(Instance, "existing-thread", CancellationToken.None);
+            var LoadCallList = Desktop.CallList.Skip(callsBeforeLoad).Select(Item => Item.Tool).ToList();
+            Require(LoadCallList.SequenceEqual(new[] { "read_thread", "navigate_to_codex_page", "read_thread" }), "notLoaded sessions are navigated to then re-read until idle");
+            Require(Desktop.CallList.Last().Caller == "existing-thread" && Desktop.CallList[^2].Arguments.GetProperty("threadId").GetString() == "existing-thread", "navigation targets the exact session");
+            Desktop.Status = "idle";
             Desktop.Failure = new TimeoutException("fixture desktop startup timeout");
             int CallsBeforeFailure = Desktop.CallList.Count;
             await ExpectAsync<TimeoutException>(() => Catalog.CreateAsync(Instance, Project, "失败任务", "不能派发", CancellationToken.None));
@@ -105,7 +112,8 @@ internal static class AgentStartupTests
             object Result = Tool switch
             {
                 "create_thread" => new { threadId = "created-thread" },
-                "read_thread" => new { thread = new { status = new { type = Status } } },
+                "navigate_to_codex_page" => new { ok = true },
+                "read_thread" => new { thread = new { status = new { type = Status == "notLoaded" && CallList.Any(Item => Item.Tool == "navigate_to_codex_page") ? "idle" : Status } } },
                 "list_projects" => new { projects = new[] { new { projectKind = "local", hostId = "local", projectId = "project", label = "项目", path = Instance.HomePath, isGitRepository = true } } },
                 _ => throw new InvalidOperationException("Unexpected desktop tool " + Tool)
             };

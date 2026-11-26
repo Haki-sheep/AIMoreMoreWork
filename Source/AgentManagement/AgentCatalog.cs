@@ -96,9 +96,23 @@ public sealed class AgentCatalog : IAgentCatalog
     public async Task RequireIdleAsync(InstanceProfile Instance, string ThreadId, CancellationToken Cancellation)
     {
         await Desktop.EnsureAvailableAsync(Instance, Cancellation);
-        var Data = await Desktop.CallAsync(Instance, ThreadId, "read_thread", new { threadId = ThreadId, hostId = "local", turnLimit = 1, includeOutputs = false, maxOutputCharsPerItem = 0 }, Cancellation);
-        string Status = Data.GetProperty("thread").GetProperty("status").GetProperty("type").GetString()!;
+        string Status = await ReadStatusAsync(Instance, ThreadId, Cancellation);
+        if (Status == "notLoaded")
+        {
+            await Desktop.CallAsync(Instance, ThreadId, "navigate_to_codex_page", new { threadId = ThreadId }, Cancellation);
+            for (int attemptCount = 0; attemptCount < 40 && Status == "notLoaded"; attemptCount++)
+            {
+                await Task.Delay(250, Cancellation);
+                Status = await ReadStatusAsync(Instance, ThreadId, Cancellation);
+            }
+        }
         if (Status != "idle") throw new InvalidOperationException("目标会话尚未空闲 当前状态 " + Status + " 请结束当前任务后再启动联调");
+    }
+
+    private async Task<string> ReadStatusAsync(InstanceProfile Instance, string ThreadId, CancellationToken Cancellation)
+    {
+        var Data = await Desktop.CallAsync(Instance, ThreadId, "read_thread", new { threadId = ThreadId, hostId = "local", turnLimit = 1, includeOutputs = false, maxOutputCharsPerItem = 0 }, Cancellation);
+        return Data.GetProperty("thread").GetProperty("status").GetProperty("type").GetString()!;
     }
 
     public Task<RelayThread> CreateAsync(InstanceProfile Instance, AgentProject? Project, string Title, string Prompt, CancellationToken Cancellation)
