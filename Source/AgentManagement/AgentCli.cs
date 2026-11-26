@@ -180,7 +180,7 @@ public static class AgentCli
             if (CallerSelector is not null) Caller = RelaySessionIdentity.ResolveProfile(Settings, CallerSelector);
             else
             {
-                string Home = Environment.GetEnvironmentVariable("CODEX_HOME") ?? throw new InvalidOperationException("缺少 CODEX_HOME 请提供 --caller-instance 与 --caller-thread");
+                string Home = ManagerPaths.CurrentCodexHome() ?? throw new InvalidOperationException("缺少 CODEX_HOME 请提供 --caller-instance 与 --caller-thread");
                 var MatchList = Settings.InstanceList.Where(Item => ManagerPaths.Same(Item.HomePath, Home)).ToList();
                 if (MatchList.Count != 1) throw new InvalidOperationException("无法唯一确定调用方实例 请提供 --caller-instance");
                 Caller = MatchList[0];

@@ -47,6 +47,17 @@ public static class ManagerPaths
 {
     public static string Root => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexInstanceManager");
     public static string SettingsPath => Path.Combine(Root, "instances.json");
+
+    /// <summary>
+    /// 当前 Codex 会话的数据目录
+    /// 原生启动的主实例不设置 CODEX_HOME 此时沿用 Codex 默认目录 仅在存在 CODEX_THREAD_ID 时成立
+    /// </summary>
+    public static string? CurrentCodexHome()
+    {
+        string? Home = Environment.GetEnvironmentVariable("CODEX_HOME");
+        if (!string.IsNullOrEmpty(Home)) return Home;
+        return Environment.GetEnvironmentVariable("CODEX_THREAD_ID") is null ? null : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+    }
     public static string BackupRoot => Path.Combine(Root, "backups");
     public static string CcSettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cc-switch", "settings.json");
     public static string DefaultHome => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");

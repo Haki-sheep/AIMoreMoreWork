@@ -78,7 +78,7 @@ public static class FormationCli
             if (!Operator)
             {
                 var Settings = (LoadSettings ?? SettingsStore.Load)();
-                string Home = Environment.GetEnvironmentVariable("CODEX_HOME") ?? throw new InvalidOperationException("编队角色需要实际 CODEX_HOME");
+                string Home = ManagerPaths.CurrentCodexHome() ?? throw new InvalidOperationException("编队角色需要实际 CODEX_HOME");
                 InstanceId = Settings.InstanceList.SingleOrDefault(Value => ManagerPaths.Same(Value.HomePath, Home))?.Id
                     ?? throw new InvalidOperationException("编队角色的 CODEX_HOME 未匹配已登记实例");
                 ThreadId = Environment.GetEnvironmentVariable("CODEX_THREAD_ID") ?? throw new InvalidOperationException("编队角色需要实际 CODEX_THREAD_ID");
